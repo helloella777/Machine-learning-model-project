@@ -1,0 +1,202 @@
+"""
+- The DataModeler predict the 'outcome' from the columns 'amount' and 'transaction date.'
+- get 100% accuracy on both training and test
+"""
+
+from __future__ import annotations
+import numpy as np
+import pandas as pd
+from datetime import datetime
+from sklearn.linear_model import LogisticRegression
+
+
+class DataModeler:
+    def __init__(self, sample_df: pd.DataFrame):
+        self.train_df = sample_df.copy()
+        self.target_col = 'outcome'
+        self.features = ['amount', 'transaction_date']
+
+    def prepare_data(self, oos_df: pd.DataFrame = None) -> pd.DataFrame:
+        if oos_df is None:
+            df = self.train_df
+        else:
+            df = oos_df
+        print(df.columns)
+        print(df)
+        # Convert 'transaction_date' to datetime and fill missing values with the reference date, the reference date here will be ajusted with more context information from clients data.
+        reference_date = datetime(2022, 1, 1)
+        df['transaction_date'] = pd.to_datetime(df['transaction_date'], errors='coerce').fillna(reference_date)
+
+        # Calculate the number of days since the reference date
+        df['transaction_date'] = (df['transaction_date'] - reference_date).dt.days
+
+        if oos_df is None:
+            self.train_df = df[self.features + [self.target_col]]
+        print(f"df[self.features]: {df[self.features]}")
+        return df[self.features]
+       
+
+    def impute_missing(self, oos_df: pd.DataFrame = None) -> pd.DataFrame:
+        if oos_df is None:
+            df1 = self.train_df
+        else:
+            df1 = oos_df
+          
+        df = df1.copy()
+        # Fill missing values in 'amount' with the mean
+        df['amount'].fillna(df['amount'].mean(), inplace=True)
+
+        if oos_df is None:
+            self.train_df = df
+        return df
+
+    def fit(self) -> None:
+        X_train = self.train_df[self.features]
+        y_train = self.train_df[self.target_col]
+
+        self.model = LogisticRegression()
+        self.model.fit(X_train, y_train)
+
+    def model_summary(self) -> str:
+        """
+        make predictions using the trained logistic regression model
+        Create a summary of the logistic regression model.
+        """
+        if not hasattr(self, 'model'):
+            return "Model not fitted yet."
+
+        if isinstance(self.model, LogisticRegression):
+            summary = "Logistic Regression Model\n"
+            summary += "Coefficients:\n"
+            for feature, coef in zip(self.features, self.model.coef_[0]):
+                summary += f"{feature}: {coef:.4f}\n"
+
+            return summary
+        else:
+            return "Unsupported model type."
+          
+        return "Logistic Regression Model"
+
+
+    def predict(self, oos_df: pd.DataFrame = None) -> pd.Series[bool]:
+        if oos_df is None:
+            X = self.train_df[self.features]
+        else:
+            X = oos_df[self.features]
+
+        predictions = self.model.predict(X)
+        return pd.Series(predictions)
+
+    def save(self, path: str) -> None:
+        '''
+        Save the DataModeler so it can be re-used.
+        '''
+        import joblib
+
+        joblib.dump(self, path)
+
+    @staticmethod
+    def load(path: str) -> DataModeler:
+        '''
+        Reload the DataModeler from the saved state so it can be re-used.
+        '''
+        import joblib
+
+        return joblib.load(path)
+
+
+#################################################################################
+
+
+transact_train_sample = pd.DataFrame(
+    {
+        "customer_id": [11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+        "amount": [1, 3, 12, 6, 0.5, 0.2, np.nan, 5, np.nan, 3],
+        "transaction_date": [
+            '2022-01-01',
+            '2022-08-01',
+            None,
+            '2022-12-01',
+            '2022-02-01',
+            None,
+            '2022-02-01',
+            '2022-01-01',
+            '2022-11-01',
+            '2022-01-01'
+        ],
+        "outcome" : [False, True, True, True, False, False, True, True, True, False]
+    }
+)
+
+
+
+print(f"Current dtypes:\n{transact_train_sample.dtypes}\n")
+
+
+
+transactions_modeler = DataModeler(transact_train_sample)
+
+transactions_modeler.prepare_data()
+
+print(f"Changed columns to:\n{transactions_modeler.train_df.dtypes}\n")
+
+t
+
+transactions_modeler.impute_missing()
+
+print(f"Imputed missing as mean:\n{transactions_modeler.train_df}\n")
+
+
+
+
+print("Fitting  model")
+transactions_modeler.fit()
+
+print(f"Fit model:\n{transactions_modeler.model_summary()}\n")
+
+
+
+in_sample_predictions = transactions_modeler.predict()
+print(f"Predicted on training sample: {in_sample_predictions}\n")
+print(f'Accuracy = {sum(in_sample_predictions ==  [False, True, True, True, False, False, True, True, True, False])/.1}%')
+
+
+
+transactions_modeler.save("transact_modeler")
+loaded_modeler = DataModeler.load("transact_modeler")
+
+print(f"Loaded DataModeler sample df:\n{loaded_modeler.model_summary()}\n")
+
+
+
+transact_test_sample = pd.DataFrame(
+    {
+        "customer_id": [21, 22, 23, 24, 25],
+        "amount": [0.5, np.nan, 8, 3, 2],
+        "transaction_date": [
+            '2022-02-01',
+            '2022-11-01',
+            '2022-06-01',
+            None,
+            '2022-02-01'
+        ]
+    }
+)
+
+adjusted_test_sample = transactions_modeler.prepare_data(transact_test_sample)
+
+print(f"Changed columns to:\n{adjusted_test_sample.dtypes}\n")
+
+
+
+filled_test_sample = transactions_modeler.impute_missing(adjusted_test_sample)
+
+print(f"Imputed missing as mean:\n{filled_test_sample}\n")
+
+
+
+oos_predictions = transactions_modeler.predict(filled_test_sample)
+print(f"Predicted on out of sample data: {oos_predictions}\n")
+print(f'Accuracy = {sum(oos_predictions == [False, True, True, False, False])/.05}%')
+
+
